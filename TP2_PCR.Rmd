@@ -1,0 +1,252 @@
+---
+title: "Regresión por Componentes Principales (PCR)"
+author: "Luis Lefevre y Manuel Medina"
+date: "3 de Diciembre de 2022"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+---
+
+<style type="text/css">
+div.main-container {
+  max-width: 1600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+```{r, message=FALSE, warning=FALSE}
+# Carga de librerías
+library(tidyverse)
+library(tidymodels)
+library(gridExtra)
+library(GGally)
+library(pls)
+```
+
+Desarrollaremos un modelo de Regresión por componentes principales para la predicción de los salarios de jugadores de la NBA en la temporada 2022-2023 en base a información de la temporada pasada y lo compararemos con un modelo lineal múltiple.
+
+*Para la construcción de este script se tomó como guía el código desarrollado para la aplicación de PCR en el libro: An Introduction to Statistical Learning (Página 279) y el código proporcionado por Juan Manuel Barriola, Azul Villanueva y Franco Matelli en su clase práctica sobre [Regularización: Lasso, Ridge y Elastic Net](https://github.com/eea-uba/EEA-2022/tree/main/clase%2010).
+
+
+# Dataset
+
+El dataset al que se aplicará PCR fue tomado de la clase práctica sobre [Regularización: Lasso, Ridge y Elastic Net](https://github.com/eea-uba/EEA-2022/tree/main/clase%2010) de Juan Manuel Barriola, Azul Villanueva y Franco Matelli, ellos fueron los que se encargaron de la recopilación y limpieza de los datos.
+
+El dataset consiste en estadísticas por partido de jugadores de la NBA durante la temporada 2021-2022 y sus salarios de la temporada 2022-2023 provenientes de la página [Basketball Reference](https://www.basketball-reference.com)
+
+Los scripts para la creación del dataset son estos:
+[creacion_dataset_nba](https://github.com/eea-uba/EEA-2022/blob/main/clase%2010/creacion_datasets_nba.Rmd) y [build_df](https://github.com/eea-uba/EEA-2022/blob/main/clase%2010/build_df.Rmd)
+
+Variables del dataset y breve descripción:
+```{r, message=FALSE}
+diccionario = read_csv("diccionario_terminos.csv")
+diccionario
+```
+
+Datos de salarios y estadísticas por jugador para la temporada 2022-2023
+```{r, message=FALSE}
+# Los datos de salario son para la temporada 2022-2023
+nba = read_csv("nba_player_stats_salary_2022_2023.csv")
+# Vemos las dimensiones del dataset
+dim(nba)
+# Verificamos si existen filas con NA en la variable salario
+sum(is.na(nba$salario))
+# Removemos todas las filas que tengan algún registro con NA
+nba <- na.omit(nba)
+# Vemos nuevamente las dimensiones
+dim(nba)
+# Vemos algunos registros
+glimpse(nba)
+```
+
+## Análisis Exploratorio
+
+Existen 5 posiciones en el basket, a continuación una breve descripción de cada una:
+
+* **Point Guard (PG)**: conocido como base, se caracteriza por su habilidad para pasar y manejar la pelota y organizar las jugadas. Suelen ser personas de baja estatura en el equipo.
+
+* **Shooting Guard (SG)**: conocido como escolta, se caracteriza por su habilidad para anotar de larga y media distancia. También suelen tener buenas habilidades de manejo y pase de la pelota.
+
+* **Small Forward (SF)**: conocido como alero, se la considera la posición más versátil de todas. Se caracterizan por su capacidad de anotar puntos de maneras distintas (triples, tiros a distancia media y corta) y su capacidad atlética.
+
+* **Power Forward (PF)**: conocido como ala pivot, se caracteriza por anotar desde un rango medio a corto y la defensa próxima al aro. Suelen ser jugadores altos pero con mayor flexibilidad que los pivots.
+
+* **Center (C)**: conocido como pivot, se caracteriza por ser jugadores muy altos y jugar cerca del aro, motivo por el cual se destacan en en las anotaciones de 2 puntos, la toma de rebotes y bloqueos.
+
+![Fuente: www.chaseyoursport.com](posiciones_basket.jpg){width=50%}
+
+## Correlograma
+
+Realizamos un correlograma entre las variables cuantitativas.
+
+```{r fig2, fig.height = 8, fig.width = 8, fig.align = "center"}
+nba %>% 
+  select_if(is.numeric) %>% # selección variables numéricas
+  ggcorr(., layout.exp = 5, hjust = 1, size = 3.5, nbreaks = 5, color = "grey50") + # graficamos correlacion pearson
+  labs(title='Correlograma de variables cuantitativas')
+```
+¿Qué podemos observar?
+<ul>
+  <li>El salario tiene un correlación positiva con la gran mayoría de las demás variables. Por ejemplo entre con las variables: puntos (PTS), intentos de anotaciones de campo (FGA), anotaciones de 2 puntos (X2P).</li>
+  <li>Existe una cantidad considerable de variables que tienen una correlación fuerte con otras. Por ejemplo entre: puntos (PTS) y personal fouls (PF) o tiros libres (FT) y intentos de tiros libres (FTA)</li>
+</ul>
+
+Observemos las relaciones entre algunas variables usando `ggpairs`. 
+
+Elegimos las siguientes variables que tienen distinto valor de correlación con salario: Edad (Age), Partidos (G), Intentos de anotaciones de campo (FGA), anotaciones (PTS), rebotes totales (TRB), tiros libres (FT), asistencias (AST), bloqueos (BLK). Agrupamos por la posición.
+
+```{r fig3, fig.height = 8, fig.width = 12, fig.align = "center", message=FALSE}
+nba %>% 
+  select(salario, Age, G, FGA, PTS, TRB, FT, BLK, Pos) %>% 
+  ggpairs(aes(color = Pos), upper = list(continuous = wrap("cor", size = 3, hjust=0.5)), progress=FALSE) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = "bottom") + 
+  theme_bw()
+```
+
+¿Qué podemos observar?
+<ul>
+  <li>Todas las variables elegidas tienen una correlación positiva con la variable salario, siendo la que tiene la mayor correlación el número de puntos anotados (PTS) 0.695.</li>
+  <li>Dependiendo de la posición existe más o menos varianza entre los salarios.</li>
+  <li>En cada posición existen outliers con respecto al salario.</li>
+  <li>Entre la gran mayoría de las variables numéricas también existe una correlación positiva.</li>
+  <li>Las variables que tienen la mayor correlación son: el número de anotaciones (PTS) e intentos de anotaciones de campo (FGA), con 0.985; seguida de PTS y tiros libres (FT) con 0.888</li>
+</ul>
+
+¿Por qué elegimos este dataset para PCR?
+<ul>
+  <li>El número de registros no es tan grande comparado con el número de variables, tenemos 402 registros con 48 variables.</li>
+  <li>Tenemos muchas variables que están fuertemente correlacionadas con otras. Podemos obtener un subconjunto de componentes principales que capturen la mayoría de la varianza de las variables predictoras y su relación con la respuesta, el salario.</li>
+</ul>
+
+# Modelo Lineal Múltiple
+
+$salario = \beta_0 +\beta_1X_1+\beta_2X_2+...+\epsilon$
+
+Recordemos que en el modelo lineal múltiple estimamos coeficientes para cada variable del dataset, además del intercept.
+
+Primero probaremos el uso de un modelo lineal múltiple que use todas las variables, exceptuando: jugador y equipo, quedandonos con 47 variables.
+
+```{r}
+# Eliminamos las variables jugador  y equipo (Tm)
+nba <- nba %>% select(-c(jugador, Tm))
+# Reescalamos las variables numericas
+nba_scaled <- nba %>% mutate_at(vars(-Pos), scale)
+# Nuevo modelo lineal 
+modelo_lineal <- lm(formula = salario~., data = nba_scaled)
+summary(modelo_lineal)
+```
+Mostramos graficamente los coeficientes estimados y sus intervalos de confianza.
+
+```{r}
+lineal_coef = modelo_lineal %>% tidy(conf.int=TRUE)
+
+lineal_coef %>% filter(!is.na(estimate)) %>% 
+  ggplot(., aes(term, estimate))+
+  geom_point()+
+  geom_pointrange(aes(ymin = conf.low, ymax = conf.high), color = "forestgreen")+
+  geom_hline(yintercept = 0, lty = 4, color = "black") +
+  labs(title = "Coeficientes de la regresion lineal", subtitle="Variables escaladas", x="", y="Estimacion e Int. Confianza") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle=90))
+
+```
+
+Graficamos los p-valores de mayor a menor para evaluar la significatividad de los coeficientes.
+
+```{r}
+lineal_coef %>% filter(!is.na(estimate)) %>%
+  ggplot(., aes(reorder(term, -p.value), p.value, fill=p.value))+
+  geom_bar(stat = 'identity', aes(fill=p.value))+
+  geom_hline(yintercept = 0.05) +
+  labs(title = "P-valor de los regresores",subtitle="Variables escaladas", x="", y="P-valor") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle=90)) + 
+  scale_fill_gradient2(high='firebrick', low = 'forestgreen', mid='yellow2',midpoint = 0.5 )
+```
+
+¿Qué podemos observar?
+<ul>
+  <li>Solo 3 variables tienen coeficientes significativos: BLK, G y Age.</li>
+  <li>4 variables tienen coeficientes estimados con NA: 2P, 2PA, PTS y TRB</li>
+  <li>La alta cantidad de variables y el hecho que algunas tengan una alta correlación ocasiona que los coeficientes estimados tengan alta varianza y por lo tanto no sean significativos.</li>
+  <li>PCR puede ayudarnos al reducir el número de coeficientes a estimar.</li>
+</ul>
+
+# PCR
+```{r}
+#seteamos la semilla para la replicabilidad de los resultados
+set.seed(123)
+#aplicamos PCR usando la función pcr de la librería pls
+modelo_pcr <- pcr(salario ~ ., data = nba_scaled, scale = FALSE, validation = "CV")
+summary(modelo_pcr)
+```
+
+¿Qué podemos observar?
+<ul>
+  <li>Para cada componente se muestra el RMSE</li>
+  <li>Las 2 primeras componentes explican el 58.42% de la varianza en los datos</li>
+  <li>Con las primeras 27 componentes ya se explica el 99% de la varianza de los datos</li>
+</ul>
+
+Graficamos el MSE de CV para cada número de componentes
+```{r}
+validationplot(modelo_pcr, val.type = "MSEP")
+```
+
+El número de componentes con el que se obtiene un menor MSE es 17.
+
+Las primeras 17 componentes explican alrededor del 95% de la varianza en los predictores y al rededor del 70% de la relación con la variable respuesta: salario.
+
+# Evaluación de modelos 
+
+Para evaluar los modelos primero dividimos nuestro dataset en train y test
+```{r}
+set.seed(123)
+train_test <- nba_scaled %>% initial_split(prop = 0.5)
+train <- training(train_test)
+test <- testing(train_test)
+
+```
+
+
+Entrenamos el modelo usando PCR con los datos de entrenamiento y visualizamos los errores de CV
+```{r}
+set.seed(123)
+modelo_pcr_train <- pcr(salario ~ ., data = train, scale = FALSE, validation = "CV" )
+validationplot(modelo_pcr_train, val.type = "MSEP")
+```
+
+Vemos el summary para elegir el mejor número de componentes principales a usar
+```{r}
+summary(modelo_pcr_train)
+```
+
+Hacemos la predicción usando el modelo entrenado previamente y especificando que el número de componentes a usar será 19, el que obtuvo un menor error.
+```{r}
+pcr_pred <- predict(modelo_pcr_train, test, ncomp = 19)
+#Calculamos RMSE
+mean((pcr_pred - test$salario[,1]) ^ 2) ^ 0.5
+```
+
+Entrenamos el modelo lineal múltiple con los datos de entrenamiento
+```{r}
+modelo_lineal_train <- lm(formula = salario ~ ., data = train)
+#summary(modelo_lineal_train)
+```
+Predecimos sobre los datos de test
+```{r, warning=FALSE}
+lineal_pred <- predict(modelo_lineal_train, newdata = test)
+mean((lineal_pred - test$salario[,1]) ^ 2) ^ 0.5
+```
+
+<b>Podemos observar que usando el modelo con PCR se redujo el RMSE a 0.63, comparado con el valor obtenido con el modelo lineal múltiple que obtuvo un valor de 0.71</b>
+
+Conclusiones
+<ul>
+  <li>PCR performará bien en casos donde las primeras componentes principales son suficientes para capturar la mayoría de la varianza en los predictores y a la vez la relación con la respuesta.</li>
+  <li>Aunque PCR provee una forma simple de hacer regresión usando M < p predictores, no es un método de selección de features. Esto es porque cada una de las M componentes principales usadas en la regresión son una combinación lineal de todas las p features originales.</li>
+  <li>En casos donde n >> p no se cumple, al reducir los coeficientes estimados, podemos reducir sustancialmente la varianza al costo de un incremento en el bias. Esto puede llevar a mejoras en el accuracy al predecir observaciones no usadas en el entranamiento.</li>
+</ul>
