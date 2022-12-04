@@ -3220,6 +3220,14 @@ test</p>
 train_test &lt;- nba_scaled %&gt;% initial_split(prop = 0.5)
 train &lt;- training(train_test)
 test &lt;- testing(train_test)</code></pre>
+<p>Entrenamos el modelo lineal múltiple con los datos de
+entrenamiento</p>
+<pre class="r"><code>modelo_lineal_train &lt;- lm(formula = salario ~ ., data = train)
+#summary(modelo_lineal_train)</code></pre>
+<p>Predecimos sobre los datos de test</p>
+<pre class="r"><code>lineal_pred &lt;- predict(modelo_lineal_train, newdata = test)
+mean((lineal_pred - test$salario[,1]) ^ 2) ^ 0.5</code></pre>
+<pre><code>## [1] 0.7130786</code></pre>
 <p>Entrenamos el modelo usando PCR con los datos de entrenamiento y
 visualizamos los errores de CV</p>
 <pre class="r"><code>set.seed(123)
@@ -3290,14 +3298,6 @@ un menor error.</p>
 #Calculamos RMSE
 mean((pcr_pred - test$salario[,1]) ^ 2) ^ 0.5</code></pre>
 <pre><code>## [1] 0.6267468</code></pre>
-<p>Entrenamos el modelo lineal múltiple con los datos de
-entrenamiento</p>
-<pre class="r"><code>modelo_lineal_train &lt;- lm(formula = salario ~ ., data = train)
-#summary(modelo_lineal_train)</code></pre>
-<p>Predecimos sobre los datos de test</p>
-<pre class="r"><code>lineal_pred &lt;- predict(modelo_lineal_train, newdata = test)
-mean((lineal_pred - test$salario[,1]) ^ 2) ^ 0.5</code></pre>
-<pre><code>## [1] 0.7130786</code></pre>
 <p><b>Podemos observar que usando el modelo con PCR se redujo el RMSE a
 0.63, comparado con el valor obtenido con el modelo lineal múltiple que
 obtuvo un valor de 0.71</b></p>

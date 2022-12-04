@@ -211,6 +211,16 @@ test <- testing(train_test)
 
 ```
 
+Entrenamos el modelo lineal múltiple con los datos de entrenamiento
+```{r}
+modelo_lineal_train <- lm(formula = salario ~ ., data = train)
+#summary(modelo_lineal_train)
+```
+Predecimos sobre los datos de test
+```{r, warning=FALSE}
+lineal_pred <- predict(modelo_lineal_train, newdata = test)
+mean((lineal_pred - test$salario[,1]) ^ 2) ^ 0.5
+```
 
 Entrenamos el modelo usando PCR con los datos de entrenamiento y visualizamos los errores de CV
 ```{r}
@@ -229,17 +239,6 @@ Hacemos la predicción usando el modelo entrenado previamente y especificando qu
 pcr_pred <- predict(modelo_pcr_train, test, ncomp = 19)
 #Calculamos RMSE
 mean((pcr_pred - test$salario[,1]) ^ 2) ^ 0.5
-```
-
-Entrenamos el modelo lineal múltiple con los datos de entrenamiento
-```{r}
-modelo_lineal_train <- lm(formula = salario ~ ., data = train)
-#summary(modelo_lineal_train)
-```
-Predecimos sobre los datos de test
-```{r, warning=FALSE}
-lineal_pred <- predict(modelo_lineal_train, newdata = test)
-mean((lineal_pred - test$salario[,1]) ^ 2) ^ 0.5
 ```
 
 <b>Podemos observar que usando el modelo con PCR se redujo el RMSE a 0.63, comparado con el valor obtenido con el modelo lineal múltiple que obtuvo un valor de 0.71</b>
